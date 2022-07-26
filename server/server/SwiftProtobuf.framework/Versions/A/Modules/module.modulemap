@@ -1,0 +1,11 @@
+framework module SwiftProtobuf {
+  umbrella header "SwiftProtobuf.h"
+
+  export *
+  module * { export * }
+}
+
+module SwiftProtobuf.Swift {
+    header "SwiftProtobuf-Swift.h"
+    requires objc
+}
