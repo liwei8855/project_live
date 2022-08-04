@@ -18,10 +18,11 @@ class GPUImageTestController: UIViewController {
   }
     
   private func process1(){
-    let sourceImage = UIImage(named: "test")!
-    let toonFilter = SmoothToonFilter()
-    let filteredImage = sourceImage.filterWithOperation(toonFilter)
-    self.testImageView.image = filteredImage
+//    let sourceImage = UIImage(named: "test")!
+//    let toonFilter = SmoothToonFilter()
+//    let blurFilter = BoxBlur()
+//    let filteredImage = sourceImage.filterWithOperation(blurFilter)
+//    self.testImageView.image = filteredImage
   }
    
 

@@ -1,0 +1,5 @@
+
+//HEADER_SEARCH_PATHS = $(inherited) "$(PROJECT_DIR)/${PROJECT_NAME}/framework/CCMSDK.framework/Headers/"
+//HEADER_SEARCH_PATHS = ${inherited} "$(PROJECT_DIR)/FFmpeg-iOS/include"
+
+LIBRARY_SEARCH_PATHS = $(inherited) "$(PROJECT_DIR)/FFmpeg-iOS/lib" "$(PROJECT_DIR)/x264-iOS/lib"

@@ -4,6 +4,9 @@
 
 file/
 framework/
+FFmpeg-iOS/
+x264-iOS/
+Carthage/
 
 ## User settings
 xcuserdata/
