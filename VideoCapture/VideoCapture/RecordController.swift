@@ -14,6 +14,8 @@ class RecordController: UIViewController {
   private var previewLayer : AVCaptureVideoPreviewLayer?
   private var videoInput : AVCaptureDeviceInput?
   private var movieOutput : AVCaptureMovieFileOutput?
+  
+  let filePath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first! + "/abc.mp4"
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -27,12 +29,18 @@ class RecordController: UIViewController {
     session.startRunning()
     setupPreviewLayer()
     setupMovieFileOutput()
+    VideoEncodeManager.instance.setupEncoder(filePath)
+    let result = VideoEncodeManager.instance.setX264Resource(480, 640, 1500000)
+    if result != 0 {
+      print("error \(result)")
+    }
   }
   
   @IBAction func stop(_ sender: Any) {
     movieOutput?.stopRecording()
     session.stopRunning()
     previewLayer?.removeFromSuperlayer()
+    VideoEncodeManager.instance
   }
   
   @IBAction func `switch`(_ sender: Any) {
@@ -118,7 +126,7 @@ class RecordController: UIViewController {
         session.addOutput(fileOutput)
     }
     
-    let filePath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first! + "/abc.mp4"
+   
     let fileURL = URL(fileURLWithPath: filePath)
     fileOutput.startRecording(to: fileURL, recordingDelegate: self)
   }

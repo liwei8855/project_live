@@ -16,7 +16,11 @@
 
 
 #import <libavformat/avformat.h>
-#import <libavformat/avformat.h>
 #import <libavfilter/avfilter.h>
 #import <libavfilter/buffersrc.h>
 #import <libswresample/swresample.h>
+#import <libavutil/dict.h>
+
+#import <libavutil/opt.h>
+#import <libavcodec/avcodec.h>
+#import <libswscale/swscale.h>
