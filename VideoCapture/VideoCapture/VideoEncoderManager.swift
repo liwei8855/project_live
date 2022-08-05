@@ -6,11 +6,12 @@
 //
 
 import Foundation
+import CoreMedia
 
 class X264Manager {
-    var framecnt: Int = 0
-    var encoder_h264_frame_width: Int = 0
-    var encoder_h264_frame_height: Int = 0
+    var framecnt: Int64 = 0
+    var encoder_h264_frame_width: Int32 = 0
+    var encoder_h264_frame_height: Int32 = 0
     var out_file: UnsafeMutablePointer<Int8>?
     var pFormatCtx: UnsafeMutablePointer<AVFormatContext>?
     var fmt: UnsafeMutablePointer<AVOutputFormat>?
@@ -42,8 +43,8 @@ class X264Manager {
         //默认从第0帧开始(记录当前的帧数)
         framecnt = 0
         //传入的宽高
-        encoder_h264_frame_width = width
-        encoder_h264_frame_height = height
+        encoder_h264_frame_width = Int32(width)
+        encoder_h264_frame_height = Int32(height)
         //注册FFmpeg所有编解码器(编码解码都需要)
         av_register_all()
         //初始化AVFormatContext: 用作之后写入视频帧并编码成 h264，贯穿整个工程当中(释放资源时需要销毁)
@@ -148,15 +149,117 @@ class X264Manager {
         return 0
     }
     
-    func freeX264Resource() {
-        //释放AVFormatContext
-        
+    //将CMSampleBufferRef格式的数据编码成h264并写入文件
+    func encoderToH264(_ sampleBuffer: CMSampleBuffer) {
+        //通过CMSampleBufferRef对象获取CVPixelBufferRef对象
+        let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+        guard let imageBuffer = imageBuffer else { return }
+        let lockFlag = CVPixelBufferLockFlags.init(rawValue: 0)
+        //锁定imageBuffer内存地址开始进行编码
+        if CVPixelBufferLockBaseAddress(imageBuffer, lockFlag) == kCVReturnSuccess {
+            //从CVPixelBufferRef读取YUV的值
+            //NV12和NV21属于YUV格式，是一种two-plane模式，即Y和UV分为两个Plane，但是UV（CbCr）为交错存储，而不是分为三个plane
+            //获取Y分量的地址
+            var bufferPtr:UnsafeMutableRawPointer? = CVPixelBufferGetBaseAddressOfPlane(imageBuffer, 0)
+            //获取UV分量的地址
+            var bufferPtr1:UnsafeMutableRawPointer? = CVPixelBufferGetBaseAddressOfPlane(imageBuffer, 1)
+            //根据像素获取图片的真实宽度&高度
+            let width = CVPixelBufferGetWidth(imageBuffer)
+            let height = CVPixelBufferGetHeight(imageBuffer)
+            //获取Y分量长度
+            let bytesrow0 = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 0)
+            let bytesrow1 = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 1)
+            var yuv420_data:UnsafeMutablePointer<UInt8>? = UnsafeMutablePointer.allocate(capacity: width*height*3/2)
+            //将NV12数据转成YUV420P(I420)数据
+            var pY:UnsafeMutablePointer<UInt8>? = bufferPtr?.assumingMemoryBound(to: UInt8.self)
+            var pUV:UnsafeMutablePointer<UInt8>? = bufferPtr1?.assumingMemoryBound(to: UInt8.self)
+            guard let yuv420_data = yuv420_data, let pY = pY, let pUV = pUV else {
+                return
+            }
+            
+            let pU:UnsafeMutablePointer = yuv420_data + width*height
+            let pV =  pU + width*height/4
+            for i in 0..<height {
+                memcpy(yuv420_data+i*width, pY+i*bytesrow0, width)
+            }
+            for j in 0..<height/2 {
+                for i in 0..<width/2 {
+                    pU.advanced(by: 1).pointee = pUV.advanced(by: i*2).pointee
+                    pV.advanced(by: 1).pointee = pUV.advanced(by: i*2+1).pointee
+                }
+                pUV.advanced(by: bytesrow1)
+            }
+            //分别读取YUV的数据
+            guard let pFrame = pFrame else {
+                return
+            }
+            picture_buf = yuv420_data
+            guard let picture_buf = picture_buf else {
+                return
+            }
+            pFrame.pointee.data.0 = picture_buf //y
+            guard let y_size = y_size else {
+                return
+            }
+            pFrame.pointee.data.1 = picture_buf.advanced(by: Int(y_size))//u
+            pFrame.pointee.data.2 = picture_buf.advanced(by: Int(y_size*5/4)) //v
+            
+            //设置当前帧
+            pFrame.pointee.pts = framecnt
+            let got_picture: UnsafeMutablePointer<Int32> = UnsafeMutablePointer.allocate(capacity: 0)
+            //设置宽度高度以及YUV各式
+            pFrame.pointee.width = encoder_h264_frame_width
+            pFrame.pointee.height = encoder_h264_frame_height
+            pFrame.pointee.format  = PIX_FMT_YUV420P.rawValue
+            
+            if pkt == nil {
+                return
+            }
+            //对编码前的原始数据(AVFormat)利用编码器进行编码，将 pFrame 编码后的数据传入pkt 中
+            var ret = avcodec_encode_video2(pCodecCtx, &pkt!, pFrame, got_picture)
+            if ret < 0 {
+                print("Failed to encode! \n");
+            }
+            //编码成功后写入 AVPacket 到 输入输出数据操作着 pFormatCtx 中，当然，记得释放内存
+            guard let video_st = video_st else {
+                return
+            }
+            if got_picture.pointee == 1 {
+                framecnt += 1
+                pkt!.stream_index = video_st.pointee.index
+                ret = av_write_frame(pFormatCtx, &pkt!)
+                av_free_packet(&pkt!)
+            }
+            //释放yuv数据
+            free(yuv420_data)
+        }
+        CVPixelBufferUnlockBaseAddress(imageBuffer, lockFlag)
     }
     
-    func flush_encoder(_ fmt_ctx: UnsafeMutablePointer<AVFormatContext>, _ stream_index: Int) -> Int {
-        var ret: Int
-        var got_frame: Int
-        let enc_pkt = AVPacket()
+    func freeX264Resource() {
+        //释放AVFormatContext
+        guard let pFormatCtx = pFormatCtx else {
+            return
+        }
+        let ret = flush_encoder(pFormatCtx, 0)
+        if ret < 0 {
+            print("Flushing encoder failed\n");
+        }
+        //将还未输出的AVPacket输出出来
+        av_write_trailer(pFormatCtx)
+        //关闭资源
+        if let video_st = video_st {
+            avcodec_close(video_st.pointee.codec)
+            av_free(pFrame)
+        }
+        avio_close(pFormatCtx.pointee.pb)
+        avformat_free_context(pFormatCtx)
+    }
+    
+    func flush_encoder(_ fmt_ctx: UnsafeMutablePointer<AVFormatContext>, _ stream_index: Int) -> Int32 {
+        var ret: Int32 = 0
+        var got_frame: Int32 = 0
+        var enc_pkt = AVPacket()
         guard let streams = fmt_ctx.pointee.streams else { return -1 }
         guard let stream = streams[stream_index] else { return -1 }
         let capa = stream.pointee.codec.pointee.codec.pointee.capabilities
@@ -168,9 +271,25 @@ class X264Manager {
         
         while (true) {
             enc_pkt.data = UnsafeMutablePointer.allocate(capacity: 0)
+            enc_pkt.size = 0
             av_init_packet(&enc_pkt)
+            var frame:UnsafeMutablePointer<AVFrame>? = UnsafeMutablePointer.allocate(capacity: 0)
+            ret = avcodec_encode_video2(stream.pointee.codec, &enc_pkt, frame, &got_frame)
+            av_frame_free(&frame)
+            
+            if ret < 0 {
+                break
+            }
+            if got_frame != 0 {
+                ret = 0
+                break
+            }
+            ret = av_write_frame(fmt_ctx, &enc_pkt)
+            if ret < 0 {
+                break
+            }
         }
-        return 0
+        return ret
     }
 }
 class VideoEncodeManager {
@@ -184,6 +303,10 @@ class VideoEncodeManager {
     func setX264Resource(_ width: Int,_ height: Int, _ bitrate: Int) -> Int {
         let result = encoder.setX264Resource(width, height, bitrate)
         return result
+    }
+   
+    func encoderToH264(_ sampleBuffer: CMSampleBuffer) {
+        encoder.encoderToH264(sampleBuffer)
     }
     
     func freeX264Resource() {

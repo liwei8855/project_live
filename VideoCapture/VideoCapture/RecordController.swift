@@ -40,7 +40,7 @@ class RecordController: UIViewController {
     movieOutput?.stopRecording()
     session.stopRunning()
     previewLayer?.removeFromSuperlayer()
-    VideoEncodeManager.instance
+    VideoEncodeManager.instance.freeX264Resource()
   }
   
   @IBAction func `switch`(_ sender: Any) {
@@ -137,6 +137,7 @@ extension RecordController : AVCaptureVideoDataOutputSampleBufferDelegate, AVCap
   func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
     if videoOutput?.connection(with: .video) == connection {
       print("采集视频数据")
+      VideoEncodeManager.instance.encoderToH264(sampleBuffer)
     } else {
       print("采集音频数据")
     }
