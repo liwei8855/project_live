@@ -7,6 +7,7 @@
 
 import Foundation
 import CoreMedia
+import AVFoundation
 
 class X264Manager {
     var framecnt: Int64 = 0
@@ -109,14 +110,14 @@ class X264Manager {
         // 但同时对于编解码的复杂度比较高，比较消耗性能与时间
         pCodecCtx.pointee.max_b_frames = 5
         //可选设置
-        var param: UnsafeMutablePointer<OpaquePointer?> = UnsafeMutablePointer<OpaquePointer?>.allocate(capacity: 0)
+        var param: UnsafeMutablePointer<AVDictionary>?
         // H.264
         if pCodecCtx.pointee.codec_id == AV_CODEC_ID_H264 {
             // 通过--preset的参数调节编码速度和质量的平衡
-            av_dict_set(param, "preset", "slow", 0)
+            av_dict_set(&param, "preset", "slow", 0)
             // 通过--tune的参数值指定片子的类型，是和视觉优化的参数，或有特别的情况。
             // zerolatency: 零延迟，用在需要非常低的延迟的情况下，比如视频直播的编码
-            av_dict_set(param, "tune", "zerolatency", 0)
+            av_dict_set(&param, "tune", "zerolatency", 0)
         }
         //输出打印信息，内部是通过printf函数输出（不需要输出可以注释掉该局）
         av_dump_format(pFormatCtx, 0, out_file, 1)
@@ -127,17 +128,42 @@ class X264Manager {
             return -1
         }
         //打开编码器，并设置参数 param
-        let open2 = avcodec_open2(pCodecCtx, pCodec, param)
+        let open2 = avcodec_open2(pCodecCtx, pCodec, &param)
         if open2 < 0 {
             print("Failed to open encoder! \n");
             return -1
         }
         //.初始化原始数据对象: AVFrame
         pFrame = av_frame_alloc()
-        let pFramePicture = pFrame as! UnsafeMutablePointer<AVPicture>?
+        
         //通过像素格式(这里为 YUV)获取图片的真实大小，例如将 480 * 720 转换成 int 类型
-        avpicture_fill(pFramePicture, picture_buf, pCodecCtx.pointee.pix_fmt, pCodecCtx.pointee.width, pCodecCtx.pointee.height)
+//        avpicture_fill(pFramePicture, picture_buf, pCodecCtx.pointee.pix_fmt, pCodecCtx.pointee.width, pCodecCtx.pointee.height)
+        guard let pFrame = pFrame else {
+            return -1
+        }
+        
+        var p1:[UnsafeMutablePointer<UInt8>?] = Array.init(unsafeUninitializedCapacity: Int(AV_NUM_DATA_POINTERS)) { buffer, initializedCount in
+            for i in 0..<initializedCount {
+                buffer[i] = UnsafeMutablePointer<UInt8>.allocate(capacity: 0)
+            }
+        }
+        var p2:[Int32] = Array.init(unsafeUninitializedCapacity: Int(AV_NUM_DATA_POINTERS)) { buffer, initializedCount in
+            for i in 0..<initializedCount {
+                buffer[i] = Int32()
+            }
+        }
+        //pFrame.pointee.linesize
+        
+        av_image_fill_arrays(&p1, &p2, picture_buf, pCodecCtx.pointee.pix_fmt, pCodecCtx.pointee.width, pCodecCtx.pointee.height, 1)
+        (pFrame.pointee.data.0,pFrame.pointee.data.1) = (p1[0],p1[1])
+        
+        //获取指针的值 获取内存地址
+//        withUnsafePointer(to: &pFrame) {
+//
+//        }
+        
         //h264 封装格式的文件头部，基本上每种编码都有着自己的格式的头部，想看具体实现的同学可以看看 h264 的具体实现
+    
         avformat_write_header(pFormatCtx, UnsafeMutablePointer.allocate(capacity: 0))
         //创建编码后的数据 AVPacket 结构体来存储 AVFrame 编码后生成的数据
         if pkt == nil {
@@ -160,20 +186,20 @@ class X264Manager {
             //从CVPixelBufferRef读取YUV的值
             //NV12和NV21属于YUV格式，是一种two-plane模式，即Y和UV分为两个Plane，但是UV（CbCr）为交错存储，而不是分为三个plane
             //获取Y分量的地址
-            var bufferPtr:UnsafeMutableRawPointer? = CVPixelBufferGetBaseAddressOfPlane(imageBuffer, 0)
+            let bufferPtr:UnsafeMutableRawPointer? = CVPixelBufferGetBaseAddressOfPlane(imageBuffer, 0)
             //获取UV分量的地址
-            var bufferPtr1:UnsafeMutableRawPointer? = CVPixelBufferGetBaseAddressOfPlane(imageBuffer, 1)
+            let bufferPtr1:UnsafeMutableRawPointer? = CVPixelBufferGetBaseAddressOfPlane(imageBuffer, 1)
             //根据像素获取图片的真实宽度&高度
             let width = CVPixelBufferGetWidth(imageBuffer)
             let height = CVPixelBufferGetHeight(imageBuffer)
             //获取Y分量长度
             let bytesrow0 = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 0)
             let bytesrow1 = CVPixelBufferGetBytesPerRowOfPlane(imageBuffer, 1)
-            var yuv420_data:UnsafeMutablePointer<UInt8>? = UnsafeMutablePointer.allocate(capacity: width*height*3/2)
+            let yuv420_data:UnsafeMutablePointer<UInt8>? = UnsafeMutablePointer.allocate(capacity: width*height*3/2)
             //将NV12数据转成YUV420P(I420)数据
-            var pY:UnsafeMutablePointer<UInt8>? = bufferPtr?.assumingMemoryBound(to: UInt8.self)
+            let pY:UnsafeMutablePointer<UInt8>? = bufferPtr?.assumingMemoryBound(to: UInt8.self)
             var pUV:UnsafeMutablePointer<UInt8>? = bufferPtr1?.assumingMemoryBound(to: UInt8.self)
-            guard let yuv420_data = yuv420_data, let pY = pY, let pUV = pUV else {
+            guard let yuv420_data = yuv420_data, let pY = pY else {
                 return
             }
             
@@ -182,12 +208,16 @@ class X264Manager {
             for i in 0..<height {
                 memcpy(yuv420_data+i*width, pY+i*bytesrow0, width)
             }
-            for j in 0..<height/2 {
+            if pUV == nil {
+                return
+            }
+            for _ in 0..<height/2 {
                 for i in 0..<width/2 {
-                    pU.advanced(by: 1).pointee = pUV.advanced(by: i*2).pointee
-                    pV.advanced(by: 1).pointee = pUV.advanced(by: i*2+1).pointee
+                    pU.advanced(by: 1).pointee = pUV!.advanced(by: i*2).pointee
+                    pV.advanced(by: 1).pointee = pUV!.advanced(by: i*2+1).pointee
                 }
-                pUV.advanced(by: bytesrow1)
+                pUV! = pUV! + bytesrow1
+//                pUV.advanced(by: bytesrow1)
             }
             //分别读取YUV的数据
             guard let pFrame = pFrame else {
@@ -210,7 +240,7 @@ class X264Manager {
             //设置宽度高度以及YUV各式
             pFrame.pointee.width = encoder_h264_frame_width
             pFrame.pointee.height = encoder_h264_frame_height
-            pFrame.pointee.format  = PIX_FMT_YUV420P.rawValue
+            pFrame.pointee.format  = AV_PIX_FMT_YUVA420P.rawValue
             
             if pkt == nil {
                 return
@@ -230,6 +260,8 @@ class X264Manager {
                 ret = av_write_frame(pFormatCtx, &pkt!)
                 av_free_packet(&pkt!)
             }
+            got_picture.deallocate()
+            yuv420_data.deallocate()
             //释放yuv数据
             free(yuv420_data)
         }
@@ -289,6 +321,7 @@ class X264Manager {
                 break
             }
         }
+        enc_pkt.data.deallocate()
         return ret
     }
 }

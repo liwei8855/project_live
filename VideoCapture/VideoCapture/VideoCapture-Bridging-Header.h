@@ -22,5 +22,6 @@
 #import <libavutil/dict.h>
 
 #import <libavutil/opt.h>
+#import <libavutil/imgutils.h>
 #import <libavcodec/avcodec.h>
 #import <libswscale/swscale.h>

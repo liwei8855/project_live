@@ -15,7 +15,7 @@ class RecordController: UIViewController {
   private var videoInput : AVCaptureDeviceInput?
   private var movieOutput : AVCaptureMovieFileOutput?
   
-  let filePath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first! + "/abc.mp4"
+  let filePath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).last! + "/abc.h264"
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -28,7 +28,7 @@ class RecordController: UIViewController {
   @IBAction func start(_ sender: Any) {
     session.startRunning()
     setupPreviewLayer()
-    setupMovieFileOutput()
+//    setupMovieFileOutput()
     VideoEncodeManager.instance.setupEncoder(filePath)
     let result = VideoEncodeManager.instance.setX264Resource(480, 640, 1500000)
     if result != 0 {
